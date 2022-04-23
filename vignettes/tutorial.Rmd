@@ -1,0 +1,197 @@
+---
+title: "Getting XY Data"
+author: "Tyler Milewski & James Curley"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+
+## Intro
+
+Tyler used [EZtrack](https://github.com/denisecailab/ezTrack) to track the movement of mice in open-field like arenas.
+
+Tyler and I then created this [EZtrackR](https://github.com/ty14/ezTrackR) R package where we made custom R functions to convert the output of the ezTrack-ing data files into easy to use dataframes.
+
+Here, I'll briefly show you some of these functions.
+
+First, you'll need access to the data that Tyler has. I am using the `habituation` folder. This has subfolders `Mid`, `Post` and `Pre` which each contain approx 40 tracking files. Each tracking file is an individual mouse.
+
+### Example Dataset
+
+Here is one picked at random. This is the raw output from the EZtrack software. 
+
+```{r, warning=FALSE,message=FALSE}
+
+df <- read.csv("Habituation/Mid/Cohort1_hab2_2_LocationOutput.csv")
+head(df)
+```
+
+We can use a function `get_data` - available in the EZtrackR package, but I have copied it into this repo, to extract:
+
+```{r, warning=FALSE,message=FALSE}
+source("R/get_data.R")
+df_data <- get_data(df, secs=300, fr=30, burnin=0)
+```
+
+The arguments relate to how many seconds of the video we want to get (300s), the framerate of the video (usually 30, but somtimes different - you have to check the csv), and the burnin. This is how many seconds we want to not include at the beginning. This can be because e.g. the video starts before the mouse is put in.  It's not a big deal for our purposes.
+
+This is what the data look like:
+
+```{r, warning=FALSE,message=FALSE}
+head(df_data)
+tail(df_data)
+```
+
+You can see that we have the X and Y position of the mouse at each frame. The frame rate is 30, so there are 30 frames for each second.
+
+Perhaps, a better way of getting data is to use `get_coords_habit` function.
+
+```{r, warning=FALSE,message=FALSE}
+source("R/get_coords_habit.R")
+habit.xy <- get_coords_habit(df)
+str(habit.xy)
+```
+
+The data are returned in a list.  The first element `$box` gives the coordinates of the box. This is the open-field box. Unfortunately, the coordinates aren't a simple 0-100 square or something similar. These are averages of the left, top, bottom and right coordinates.   
+
+The second element `xy` gives the XY plot data. The first two columns are the raw tracked data. The `plotX` and `plotY` columns give the coordinates corrected for when tracking veers slightly outside of the box coordinates.  The final two columns `rescaleX` and `rescaleY` give data points rescaled on an axis between 0 and 1000.
+
+These are the box coordinates:
+```{r}
+habit.xy$box
+```
+
+
+These are the XY coordinates, the rescaled columns being the most useful:
+```{r}
+head(habit.xy$xy)
+tail(habit.xy$xy)
+```
+
+
+### Plotting
+
+We made some plot functions (look in the R folder), but as a start this `quickplot` function makes basic plots of the tracking:
+
+```{r, message=FALSE, warning=FALSE}
+source("R/quickplot.R")
+quickplot(habit.xy$xy)
+```
+
+We could probably make much nicer plots. Here, I'm just using points to see where the animals spent time:
+
+
+```{r}
+
+ggplot(habit.xy$xy, 
+       aes(x=rescaleX, y=rescaleY)) +
+  geom_point(color="red") +
+  theme_void()
+
+```
+
+This mouse spent most time against the walls.
+
+
+
+### Some Behavior Functions
+
+We did make some R functions in the EZtrackR pacakge that looked at e.g. immobility, thigmotaxis, distance traveled etc.  We'd need to look at these again, but just to let you know that they are there.
+
+
+
+### Creating a dataframe of multiple animals
+
+So, we could essentially do this for every csv file we have to generate random mouse movements.
+
+
+1. Pick four mice csvs:
+
+```{r, message=FALSE, warning=FALSE}
+df1 <- read.csv("Habituation/Post/PostHab1_Cohort1_1_LocationOutput.csv")
+
+df2 <- read.csv("Habituation/Post/PostHab1_Cohort1_2_LocationOutput.csv")
+
+df3 <- read.csv("Habituation/Post/PostHab1_Cohort1_3_LocationOutput.csv")
+
+df4 <- read.csv("Habituation/Post/PostHab1_Cohort1_4_LocationOutput.csv")
+
+
+
+```
+
+2. Convert each to rescaled x/y data:
+
+```{r, message=FALSE, warning=FALSE}
+xy1 <- get_coords_habit(df1)
+xy2 <- get_coords_habit(df2)
+xy3 <- get_coords_habit(df3)
+xy4 <- get_coords_habit(df4)
+```
+
+Take a peak at one of these:
+
+```{r}
+tail(xy3$xy)
+```
+
+
+3. Make into one dataframe
+
+```{r, message=FALSE, warning=FALSE}
+xy.df <- 
+rbind(
+  xy1$xy %>% select(Frame, x=rescaleX, y=rescaleY) %>% mutate(id=1),
+  xy2$xy %>% select(Frame, x=rescaleX, y=rescaleY) %>% mutate(id=2),
+  xy3$xy %>% select(Frame, x=rescaleX, y=rescaleY) %>% mutate(id=3),
+  xy4$xy %>% select(Frame, x=rescaleX, y=rescaleY) %>% mutate(id=4)
+  )
+
+head(xy.df)
+tail(xy.df)
+```
+
+
+Here's a trial run at plotting the first 1000 frames of mouse 1:
+
+```{r}
+xy.df %>% 
+  filter(id==1) %>%
+  filter(Frame<1000) %>%
+  ggplot(aes(x, y, label=id)) +
+     geom_point(size=0.5) +
+     geom_segment(aes(
+                    xend=c(tail(x, n=-1), NA), 
+                    yend=c(tail(y, n=-1), NA)
+                  )
+      ) +
+  theme_void()
+```
+
+
+Now trying to do four mice for all frames:
+
+
+```{r}
+xy.df %>% 
+  ggplot(aes(x, y, color = factor(id))) +
+     geom_point(size=0.5) +
+     geom_segment(aes(
+                    xend=c(tail(x, n=-1), NA), 
+                    yend=c(tail(y, n=-1), NA)
+                  )
+      ) +
+  theme_void()
+```
+
